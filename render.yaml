@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: wanes-mvp
+    env: node
+    buildCommand: npm install && npm run build && npm run db:init && npm run db:seed
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wanes-db
+          property: connectionString
+
+databases:
+  - name: wanes-db
+    plan: free
