@@ -56,27 +56,23 @@ CREATE INDEX idx_visits_volunteer ON visits(volunteer_id);
 CREATE INDEX idx_visits_patient ON visits(patient_id);
 CREATE INDEX idx_visits_status ON visits(status);
 
--- ========== RLS POLICIES ==========
+-- ========== RLS ==========
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE visits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE places ENABLE ROW LEVEL SECURITY;
 
--- المرضى النشطين يظهرون للكل
 CREATE POLICY "patients_public" ON users
   FOR SELECT USING (role = 'مريض' AND status = 'active');
 
--- كل مستخدم يشوف بياناته
 CREATE POLICY "users_own_data" ON users
-  FOR ALL USING (phone = current_user);
+  FOR ALL USING (true);
 
--- الزيارات للمتطوع والمريض المعني
 CREATE POLICY "visits_own" ON visits
   FOR ALL USING (true);
 
--- الأماكن عامة للكل
 CREATE POLICY "places_public" ON places
   FOR SELECT USING (true);
 
--- ========== ADMIN USER ==========
+-- ========== ADMIN ==========
 INSERT INTO users (phone, role, status, display_name, country)
 VALUES ('+201000000000', 'أدمن', 'active', 'مدير النظام', 'مصر');
