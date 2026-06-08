@@ -1,19 +1,40 @@
 services:
+  # Frontend
   - type: web
-    name: wanes-mvp
-    env: node
-    buildCommand: npm install && npm run build && npm run db:init && npm run db:seed
-    startCommand: npm start
+    name: wanes-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: JWT_SECRET
-        generateValue: true
-      - key: DATABASE_URL
-        fromDatabase:
-          name: wanes-db
-          property: connectionString
+      - key: VITE_SUPABASE_URL
+        value: https://ptiqmeszkhjvynitflve.supabase.co
+      - key: VITE_SUPABASE_KEY
+        value: sb_publishable_XKXDKxmvams23RZv8BfXrg_vXdbGOrF
+      - key: VITE_FIREBASE_API_KEY
+        value: AIzaSyD9aKJRjnYTRZHzqjxPFimAOzbL3HaV7SU
+      - key: VITE_FIREBASE_PROJECT_ID
+        value: wanes-20e41
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        value: wanes-20e41.firebaseapp.com
 
-databases:
-  - name: wanes-db
-    plan: free
+  # Backend
+  - type: web
+    name: wanes-backend
+    runtime: node
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && npm start
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: FRONTEND_URL
+        value: https://wanes-frontend.onrender.com
+      - key: SUPABASE_URL
+        value: https://ptiqmeszkhjvynitflve.supabase.co
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: wanes-20e41
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
