@@ -2,8 +2,9 @@ services:
   - type: web
     name: wanes-frontend
     runtime: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
     envVars:
       - key: VITE_SUPABASE_URL
         value: https://ptiqmeszkhjvynitflve.supabase.co
