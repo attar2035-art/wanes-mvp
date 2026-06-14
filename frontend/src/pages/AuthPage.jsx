@@ -12,6 +12,8 @@ function AuthPage({ onLogin }) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [role, setRole] = useState('مريض')
+  const [addingFor, setAddingFor] = useState('self') // 'self' or 'other'
+  const [otherProfile, setOtherProfile] = useState({ display_name: '', story: '', need: '', governorate: '', city: '', place: '', place_type: 'مستشفى' })
   const [profile, setProfile] = useState({ display_name: '', story: '', need: '', governorate: '', city: '', place: '', place_type: 'مستشفى' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -29,7 +31,7 @@ function AuthPage({ onLogin }) {
       if (existingUser) {
         onLogin(result.user, existingUser)
       } else {
-        setError('الحساب غير موجود في قاعدة البيانات')
+        setError('الحساب غير موجود')
       }
     } catch (err) {
       setError('إيميل أو كلمة مرور خاطئة')
@@ -46,8 +48,13 @@ function AuthPage({ onLogin }) {
   }
 
   const handleRoleNext = () => {
-    if (role === 'مريض') setStep('profile')
-    else handleSubmit()
+    if (role === 'مريض') setStep('addingFor')
+    else setStep('profile')
+  }
+
+  const handleAddingForNext = () => {
+    if (addingFor === 'other') setStep('otherProfile')
+    else setStep('profile')
   }
 
   const handleSubmit = async () => {
@@ -56,32 +63,58 @@ function AuthPage({ onLogin }) {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password)
       const firebaseUser = result.user
+
+      // إنشاء حساب المستخدم الأساسي
+      const userProfile = addingFor === 'self' ? profile : { display_name: email.split('@')[0], story: '', need: '', governorate: '', city: '', place: '', place_type: '' }
+
       const { data, error: dbError } = await supabase
         .from('users')
         .insert({
           email,
-          phone: '',
+          phone: null,
           role,
-          display_name: profile.display_name || email.split('@')[0],
-          story: profile.story || '',
-          need: profile.need || '',
-          governorate: profile.governorate || '',
-          city: profile.city || '',
-          place: profile.place || '',
-          place_type: profile.place_type || '',
-          status: role === 'مريض' ? 'active' : 'pending',
+          display_name: userProfile.display_name || email.split('@')[0],
+          story: userProfile.story || '',
+          need: userProfile.need || '',
+          governorate: userProfile.governorate || '',
+          city: userProfile.city || '',
+          place: userProfile.place || '',
+          place_type: userProfile.place_type || '',
+          status: 'active',
           country: 'مصر',
           created_at: new Date().toISOString()
         })
         .select()
         .single()
+
       if (dbError) throw dbError
+
+      // لو بيضيف مريض آخر
+      if (addingFor === 'other' && role === 'مريض') {
+        await supabase.from('users').insert({
+          email: null,
+          phone: null,
+          role: 'مريض',
+          display_name: otherProfile.display_name || 'مستفيد',
+          story: otherProfile.story || '',
+          need: otherProfile.need || '',
+          governorate: otherProfile.governorate || '',
+          city: otherProfile.city || '',
+          place: otherProfile.place || '',
+          place_type: otherProfile.place_type || '',
+          status: 'active',
+          country: 'مصر',
+          added_by: data.id,
+          created_at: new Date().toISOString()
+        })
+      }
+
       onLogin(firebaseUser, data)
     } catch (err) {
       if (err.code === 'auth/email-already-in-use') {
         setError('الإيميل مستخدم بالفعل')
       } else {
-        setError('خطأ في إنشاء الحساب: ' + err.message)
+        setError('خطأ: ' + err.message)
       }
     }
     setLoading(false)
@@ -91,19 +124,49 @@ function AuthPage({ onLogin }) {
   const btnStyle = { width: '100%', padding: 13, borderRadius: 12, border: 'none', background: 'var(--teal)', color: 'white', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'Cairo, sans-serif' }
   const labelStyle = { fontSize: 13, fontWeight: 700, display: 'block', marginBottom: 6 }
 
+  const ProfileForm = ({ data, setData, title }) => (
+    <>
+      <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 13, color: 'var(--text-light)', marginBottom: 16 }}>ستظهر هذه البيانات للمتطوعين على الخريطة 🔒</div>
+      {[
+        { label: 'الاسم المعروض (اختياري)', key: 'display_name', type: 'input', placeholder: 'اسم مستعار' },
+        { label: 'القصة والاحتياج ✍️', key: 'story', type: 'textarea', placeholder: 'اكتب القصة والاحتياج...' },
+        { label: 'نوع الاحتياج', key: 'need', type: 'input', placeholder: 'مثال: رعاية مسنين' },
+        { label: 'المحافظة', key: 'governorate', type: 'select', options: governorates },
+        { label: 'المدينة', key: 'city', type: 'input', placeholder: 'مثال: مدينة نصر' },
+        { label: 'نوع المكان', key: 'place_type', type: 'select', options: ['مستشفى', 'دار مسنين', 'دار أيتام', 'مركز رعاية', 'جهة خيرية', 'منزل'] },
+        { label: 'اسم المكان', key: 'place', type: 'input', placeholder: 'مثال: مستشفى النيل' },
+      ].map(f => (
+        <div key={f.key} style={{ marginBottom: 12 }}>
+          <label style={labelStyle}>{f.label}</label>
+          {f.type === 'textarea' ? (
+            <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} placeholder={f.placeholder} value={data[f.key]} onChange={e => setData({ ...data, [f.key]: e.target.value })} />
+          ) : f.type === 'select' ? (
+            <select style={inputStyle} value={data[f.key]} onChange={e => setData({ ...data, [f.key]: e.target.value })}>
+              <option value="">-- اختر --</option>
+              {f.options.map(o => <option key={o}>{o}</option>)}
+            </select>
+          ) : (
+            <input style={inputStyle} placeholder={f.placeholder} value={data[f.key]} onChange={e => setData({ ...data, [f.key]: e.target.value })} />
+          )}
+        </div>
+      ))}
+    </>
+  )
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, var(--teal-dark) 0%, var(--teal) 50%, var(--teal-light) 100%)', position: 'relative', overflow: 'hidden' }}>
       {[{ w: 320, h: 320, t: -120, r: -120 }, { w: 200, h: 200, b: -60, l: -60 }].map((c, i) => (
         <div key={i} style={{ position: 'absolute', borderRadius: '50%', background: 'rgba(255,255,255,0.05)', width: c.w, height: c.h, top: c.t, right: c.r, bottom: c.b, left: c.l }} />
       ))}
 
-      <div style={{ background: 'white', borderRadius: 24, padding: 40, width: '90%', maxWidth: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', position: 'relative', zIndex: 1, maxHeight: '90vh', overflowY: 'auto' }}>
-        
+      <div style={{ background: 'white', borderRadius: 24, padding: 40, width: '90%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', position: 'relative', zIndex: 1, maxHeight: '90vh', overflowY: 'auto' }}>
+
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ width: 72, height: 72, background: 'linear-gradient(135deg, var(--teal), var(--teal-light))', borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, margin: '0 auto 12px', boxShadow: '0 8px 24px rgba(13,115,119,0.3)' }}>🤝</div>
-          <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--text)' }}>وانس</div>
-          <div style={{ color: 'var(--text-light)', fontSize: 14, marginTop: 4 }}>منصة عالمية لزيارة المرضى والمحتاجين</div>
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ width: 64, height: 64, background: 'linear-gradient(135deg, var(--teal), var(--teal-light))', borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, margin: '0 auto 10px' }}>🤝</div>
+          <div style={{ fontSize: 26, fontWeight: 900, color: 'var(--text)' }}>وانس</div>
+          <div style={{ color: 'var(--text-light)', fontSize: 13 }}>منصة عالمية لزيارة المرضى والمحتاجين</div>
         </div>
 
         {/* Tabs */}
@@ -123,9 +186,7 @@ function AuthPage({ onLogin }) {
         {/* LOGIN */}
         {mode === 'login' && step === 'credentials' && (
           <>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>أهلاً بعودتك! 👋</div>
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 16 }}>أهلاً بعودتك! 👋</div>
             <label style={labelStyle}>البريد الإلكتروني</label>
             <input style={inputStyle} type="email" placeholder="example@email.com" value={email} onChange={e => setEmail(e.target.value)} />
             <label style={labelStyle}>كلمة المرور</label>
@@ -139,9 +200,7 @@ function AuthPage({ onLogin }) {
         {/* REGISTER - credentials */}
         {mode === 'register' && step === 'credentials' && (
           <>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>إنشاء حساب جديد ✨</div>
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 16 }}>إنشاء حساب جديد ✨</div>
             <label style={labelStyle}>البريد الإلكتروني</label>
             <input style={inputStyle} type="email" placeholder="example@email.com" value={email} onChange={e => setEmail(e.target.value)} />
             <label style={labelStyle}>كلمة المرور</label>
@@ -157,62 +216,71 @@ function AuthPage({ onLogin }) {
         {/* ROLE */}
         {step === 'role' && (
           <>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>اختار دورك 🎯</div>
-              <div style={{ fontSize: 13, color: 'var(--text-light)' }}>ما هو دورك في منصة وانس؟</div>
-            </div>
+            <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>اختار دورك 🎯</div>
+            <div style={{ fontSize: 13, color: 'var(--text-light)', marginBottom: 16 }}>ما هو دورك في منصة وانس؟</div>
             {[
-              { id: 'مريض', icon: '🏥', title: 'مريض / مستفيد', desc: 'أحتاج زيارات ودعم', color: '#8e44ad', note: 'يظهر فوراً' },
-              { id: 'متطوع', icon: '🤝', title: 'متطوع', desc: 'أريد زيارة المحتاجين', color: '#27ae60', note: 'يحتاج موافقة' },
-              { id: 'طبيب', icon: '🩺', title: 'طبيب', desc: 'أقدم رعاية طبية', color: '#2980b9', note: 'يحتاج موافقة' },
+              { id: 'مريض', icon: '🏥', title: 'مريض / مستفيد', desc: 'أحتاج زيارات ودعم', color: '#8e44ad' },
+              { id: 'متطوع', icon: '🤝', title: 'متطوع', desc: 'أريد زيارة المحتاجين', color: '#27ae60' },
+              { id: 'طبيب', icon: '🩺', title: 'طبيب', desc: 'أقدم رعاية طبية', color: '#2980b9' },
+              { id: 'مشرف', icon: '👔', title: 'مشرف', desc: 'أشرف على الزيارات', color: '#e67e22' },
             ].map(r => (
-              <div key={r.id} onClick={() => setRole(r.id)} style={{ padding: '14px 16px', border: `2px solid ${role === r.id ? r.color : 'var(--border)'}`, borderRadius: 14, cursor: 'pointer', background: role === r.id ? r.color + '10' : 'white', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: r.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>{r.icon}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>{r.title}</div>
+              <div key={r.id} onClick={() => setRole(r.id)} style={{ padding: '12px 16px', border: `2px solid ${role === r.id ? r.color : 'var(--border)'}`, borderRadius: 14, cursor: 'pointer', background: role === r.id ? r.color + '10' : 'white', display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+                <div style={{ width: 42, height: 42, borderRadius: 12, background: r.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{r.icon}</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>{r.title}</div>
                   <div style={{ fontSize: 12, color: 'var(--text-light)' }}>{r.desc}</div>
                 </div>
-                <div style={{ fontSize: 11, color: r.id === 'مريض' ? '#27ae60' : '#f39c12', fontWeight: 700, background: r.id === 'مريض' ? '#e8f8f0' : '#fff8e7', padding: '3px 8px', borderRadius: 8 }}>{r.note}</div>
               </div>
             ))}
-            <button onClick={handleRoleNext} disabled={loading} style={btnStyle}>
-              {loading ? '⏳ جاري الإنشاء...' : 'متابعة ←'}
+            <button onClick={handleRoleNext} style={btnStyle}>متابعة ←</button>
+          </>
+        )}
+
+        {/* ADDING FOR - self or other */}
+        {step === 'addingFor' && (
+          <>
+            <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>من تضيفه؟ 👥</div>
+            <div style={{ fontSize: 13, color: 'var(--text-light)', marginBottom: 16 }}>هل تسجل لنفسك أم لشخص آخر؟</div>
+            {[
+              { id: 'self', icon: '👤', title: 'أنا المريض', desc: 'أسجل لنفسي', color: '#0d7377' },
+              { id: 'other', icon: '👨', title: 'أضيف شخص آخر', desc: 'أهل، قريب، صديق يحتاج زيارات', color: '#8e44ad' },
+            ].map(a => (
+              <div key={a.id} onClick={() => setAddingFor(a.id)} style={{ padding: '14px 16px', border: `2px solid ${addingFor === a.id ? a.color : 'var(--border)'}`, borderRadius: 14, cursor: 'pointer', background: addingFor === a.id ? a.color + '10' : 'white', display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 14, background: a.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{a.icon}</div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{a.title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-light)' }}>{a.desc}</div>
+                </div>
+              </div>
+            ))}
+            <button onClick={handleAddingForNext} style={btnStyle}>متابعة ←</button>
+          </>
+        )}
+
+        {/* PROFILE - self */}
+        {step === 'profile' && (
+          <>
+            <ProfileForm
+              data={profile}
+              setData={setProfile}
+              title={addingFor === 'self' ? 'أكمل بروفايلك 📝' : 'بياناتك الشخصية 👤'}
+            />
+            <button onClick={handleSubmit} disabled={loading} style={btnStyle}>
+              {loading ? '⏳ جاري الإنشاء...' : 'ابدأ في وانس 🚀'}
             </button>
           </>
         )}
 
-        {/* PROFILE */}
-        {step === 'profile' && (
+        {/* OTHER PROFILE */}
+        {step === 'otherProfile' && (
           <>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 6 }}>أكمل بروفايلك 📝</div>
-              <div style={{ fontSize: 13, color: 'var(--text-light)' }}>بياناتك ستظهر للمتطوعين على الخريطة 🔒</div>
-            </div>
-            {[
-              { label: 'الاسم المعروض (اختياري)', key: 'display_name', type: 'input', placeholder: 'اسم مستعار أو اتركه فارغاً' },
-              { label: 'قصتك واحتياجك ✍️', key: 'story', type: 'textarea', placeholder: 'اكتب قصتك واحتياجك...' },
-              { label: 'نوع الاحتياج', key: 'need', type: 'input', placeholder: 'مثال: رعاية مسنين، دعم نفسي' },
-              { label: 'المحافظة', key: 'governorate', type: 'select', options: governorates },
-              { label: 'المدينة', key: 'city', type: 'input', placeholder: 'مثال: مدينة نصر' },
-              { label: 'نوع المكان', key: 'place_type', type: 'select', options: ['مستشفى', 'دار مسنين', 'دار أيتام', 'مركز رعاية', 'جهة خيرية', 'منزل'] },
-              { label: 'اسم المكان', key: 'place', type: 'input', placeholder: 'مثال: مستشفى النيل' },
-            ].map(f => (
-              <div key={f.key} style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>{f.label}</label>
-                {f.type === 'textarea' ? (
-                  <textarea style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }} placeholder={f.placeholder} value={profile[f.key]} onChange={e => setProfile({ ...profile, [f.key]: e.target.value })} />
-                ) : f.type === 'select' ? (
-                  <select style={inputStyle} value={profile[f.key]} onChange={e => setProfile({ ...profile, [f.key]: e.target.value })}>
-                    <option value="">-- اختر --</option>
-                    {f.options.map(o => <option key={o}>{o}</option>)}
-                  </select>
-                ) : (
-                  <input style={inputStyle} placeholder={f.placeholder} value={profile[f.key]} onChange={e => setProfile({ ...profile, [f.key]: e.target.value })} />
-                )}
-              </div>
-            ))}
+            <ProfileForm
+              data={otherProfile}
+              setData={setOtherProfile}
+              title='بيانات الشخص المحتاج 🏥'
+            />
             <button onClick={handleSubmit} disabled={loading} style={btnStyle}>
-              {loading ? '⏳ جاري الإنشاء...' : 'ابدأ في وانس 🚀'}
+              {loading ? '⏳ جاري الإنشاء...' : 'إضافة وبدء وانس 🚀'}
             </button>
           </>
         )}
